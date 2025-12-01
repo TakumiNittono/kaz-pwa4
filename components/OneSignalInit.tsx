@@ -16,12 +16,8 @@ export function OneSignalInit() {
         }
 
         // OneSignalの初期化
-        await OneSignal.init({
-          appId: appId,
+        OneSignal.initialize(appId, {
           allowLocalhostAsSecureOrigin: true,
-          notifyButton: {
-            enable: false,
-          },
         });
 
         // グローバルにOneSignalインスタンスを公開（他のコンポーネントからアクセス可能にする）

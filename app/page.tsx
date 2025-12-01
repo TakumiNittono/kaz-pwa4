@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Download, Share2, Bell, ExternalLink } from 'lucide-react';
 import OneSignal from 'react-onesignal';
 
@@ -10,6 +10,39 @@ export default function Home() {
   const [phase, setPhase] = useState<AppPhase>('loading');
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
+
+  const checkOneSignalSubscription = useCallback(async () => {
+    try {
+      // OneSignalが初期化されるまで待つ
+      let retries = 0;
+      const maxRetries = 10;
+      
+      const checkInit = async () => {
+        try {
+          const isEnabled = await OneSignal.isPushNotificationsEnabled();
+          
+          if (isEnabled) {
+            setPhase('app-subscribed');
+          } else {
+            setPhase('app-unsubscribed');
+          }
+        } catch (error) {
+          if (retries < maxRetries) {
+            retries++;
+            setTimeout(checkInit, 500);
+          } else {
+            console.error('Error checking OneSignal subscription:', error);
+            setPhase('app-unsubscribed');
+          }
+        }
+      };
+
+      checkInit();
+    } catch (error) {
+      console.error('Error checking OneSignal subscription:', error);
+      setPhase('app-unsubscribed');
+    }
+  }, []);
 
   useEffect(() => {
     // デバイス判定
@@ -32,60 +65,38 @@ export default function Home() {
 
     // Phase 2 or 3: アプリモード
     checkOneSignalSubscription();
-  }, []);
 
-  const checkOneSignalSubscription = async () => {
-    try {
-      // OneSignalが初期化されるまで待つ
-      let retries = 0;
-      const maxRetries = 10;
-      
-      const checkInit = async () => {
-        try {
-          const isEnabled = await OneSignal.isPushNotificationsEnabled();
-          
-          if (isEnabled) {
-            setPhase('app-subscribed');
-          } else {
-            setPhase('app-unsubscribed');
-          }
+    // 購読状態を定期的にチェック（状態変更を監視）
+    const intervalId = setInterval(() => {
+      const isStandaloneCheck = window.matchMedia('(display-mode: standalone)').matches || 
+                                (window.navigator as any).standalone === true;
+      if (isStandaloneCheck) {
+        checkOneSignalSubscription();
+      }
+    }, 2000); // 2秒ごとにチェック
 
-          // 購読状態の変更を監視
-          OneSignal.on('subscriptionChange', (isSubscribed: boolean) => {
-            if (isSubscribed) {
-              setPhase('app-subscribed');
-            } else {
-              setPhase('app-unsubscribed');
-            }
-          });
-        } catch (error) {
-          if (retries < maxRetries) {
-            retries++;
-            setTimeout(checkInit, 500);
-          } else {
-            console.error('Error checking OneSignal subscription:', error);
-            setPhase('app-unsubscribed');
-          }
-        }
-      };
-
-      checkInit();
-    } catch (error) {
-      console.error('Error checking OneSignal subscription:', error);
-      setPhase('app-unsubscribed');
-    }
-  };
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [checkOneSignalSubscription]);
 
   const handleRequestNotification = async () => {
     try {
       // Slidedownプロンプトを表示
-      await OneSignal.Slidedown.promptPush();
+      await OneSignal.showSlidedownPrompt();
       
       // 購読状態を再確認（少し待ってから）
       setTimeout(checkOneSignalSubscription, 1000);
     } catch (error) {
       console.error('Error requesting notification permission:', error);
-      alert('通知の許可に失敗しました。ブラウザの設定を確認してください。');
+      // showSlidedownPromptが失敗した場合、直接登録を試みる
+      try {
+        await OneSignal.registerForPushNotifications();
+        setTimeout(checkOneSignalSubscription, 1000);
+      } catch (registerError) {
+        console.error('Error registering for push notifications:', registerError);
+        alert('通知の許可に失敗しました。ブラウザの設定を確認してください。');
+      }
     }
   };
 
